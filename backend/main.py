@@ -69,10 +69,13 @@ async def generate(
     photo: UploadFile = File(...),
     audio: UploadFile | None = File(None),
     instruction: str | None = Form(None),
+    object_prompt: str | None = Form(None),
 ) -> JSONResponse:
     """Pipeline complet : photo (+ voix ou texte) -> STL.
 
-    Fournir soit `audio` (transcrit via Muse Voice), soit `instruction` (texte).
+    - `audio` (transcrit via Muse Voice) ou `instruction` (texte) : la consigne.
+    - `object_prompt` : phrase nominale décrivant l'objet à détourer pour SAM
+      (ex. "computer mouse"). Optionnel ; défaut = config SAM_OBJECT_PROMPT.
     """
     # 1. Image.
     image_bgr = _decode_image(await photo.read())
@@ -89,8 +92,11 @@ async def generate(
             status_code=400, detail="Fournir un audio ou une instruction texte."
         )
 
-    # 3. Segmentation SAM -> masques.
-    seg = sam_client.segment(image_bgr)
+    # 3. Segmentation SAM -> masques (l'objet décrit par l'utilisateur).
+    try:
+        seg = sam_client.segment(image_bgr, object_prompt=object_prompt)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Segmentation échouée : {exc}")
 
     # 4. Calibration mm + polygone.
     try:

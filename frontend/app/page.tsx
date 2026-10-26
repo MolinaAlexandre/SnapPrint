@@ -19,6 +19,7 @@ export default function Home() {
   const [photo, setPhoto] = useState<File | null>(null);
   const [audio, setAudio] = useState<Blob | null>(null);
   const [instruction, setInstruction] = useState("");
+  const [objectPrompt, setObjectPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +44,7 @@ export default function Home() {
       form.append("photo", photo);
       if (audio) form.append("audio", audio, "consigne.webm");
       else form.append("instruction", instruction);
+      if (objectPrompt.trim()) form.append("object_prompt", objectPrompt.trim());
 
       const res = await fetch("/api/generate", { method: "POST", body: form });
       const data: GenerateResponse = await res.json();
@@ -90,7 +92,31 @@ export default function Home() {
 
         <div>
           <label style={{ display: "block", marginBottom: "0.5rem" }}>
-            2. Consigne vocale
+            2. Objet à scanner
+          </label>
+          <input
+            type="text"
+            value={objectPrompt}
+            onChange={(e) => setObjectPrompt(e.target.value)}
+            placeholder="ex : computer mouse, phone, game controller"
+            style={{
+              width: "100%",
+              background: "#0f1116",
+              color: "#e8e8e8",
+              border: "1px solid #2a2d35",
+              borderRadius: "8px",
+              padding: "0.6rem",
+            }}
+          />
+          <p style={{ color: "#6b7280", fontSize: "0.85rem", marginTop: "0.5rem" }}>
+            En anglais, en quelques mots. Sert à détourer précisément l'objet sur
+            la photo. Laisse vide pour la détection automatique.
+          </p>
+        </div>
+
+        <div>
+          <label style={{ display: "block", marginBottom: "0.5rem" }}>
+            3. Consigne vocale
           </label>
           <VoiceRecorder onRecorded={setAudio} />
           <p style={{ color: "#6b7280", fontSize: "0.85rem", marginTop: "0.5rem" }}>

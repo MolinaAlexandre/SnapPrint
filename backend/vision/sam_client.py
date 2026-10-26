@@ -46,23 +46,33 @@ class SamClient:
     # ------------------------------------------------------------------
     # API publique
     # ------------------------------------------------------------------
-    def segment(self, image_bgr: np.ndarray) -> SegmentationResult:
-        """Retourne les masques de l'objet et de la pièce de référence."""
+    def segment(
+        self, image_bgr: np.ndarray, object_prompt: Optional[str] = None
+    ) -> SegmentationResult:
+        """Retourne les masques de l'objet et de la pièce de référence.
+
+        `object_prompt` (phrase nominale, ex. "computer mouse") décrit l'objet à
+        détourer. Fourni par l'utilisateur à chaque requête ; à défaut, la valeur
+        de config SAM_OBJECT_PROMPT sert de secours.
+        """
         if self.use_mock:
             return self._segment_mock(image_bgr)
-        return self._segment_remote(image_bgr)
+        return self._segment_remote(image_bgr, object_prompt)
 
     # ------------------------------------------------------------------
     # Appel réel SAM 3.1 (Meta Model API)
     # ------------------------------------------------------------------
-    def _segment_remote(self, image_bgr: np.ndarray) -> SegmentationResult:
+    def _segment_remote(
+        self, image_bgr: np.ndarray, object_prompt: Optional[str] = None
+    ) -> SegmentationResult:
         h, w = image_bgr.shape[:2]
         data_url = self._to_data_url(image_bgr)
 
-        object_mask = self._segment_prompt(
-            data_url, settings.SAM_OBJECT_PROMPT, (h, w)
-        )
-        coin_mask = self._segment_prompt(data_url, settings.SAM_COIN_PROMPT, (h, w))
+        obj_prompt = (object_prompt or "").strip() or settings.SAM_OBJECT_PROMPT
+        coin_prompt = settings.SAM_COIN_PROMPT
+
+        object_mask = self._segment_prompt(data_url, obj_prompt, (h, w))
+        coin_mask = self._segment_prompt(data_url, coin_prompt, (h, w))
 
         # Fiabilité : si la pièce chevauche l'objet (même masque capté),
         # on retire la pièce de l'objet pour un contour propre.
@@ -72,13 +82,14 @@ class SamClient:
         if not object_mask.any() or not coin_mask.any():
             missing = []
             if not object_mask.any():
-                missing.append(f"objet ('{settings.SAM_OBJECT_PROMPT}')")
+                missing.append(f"objet ('{obj_prompt}')")
             if not coin_mask.any():
-                missing.append(f"pièce ('{settings.SAM_COIN_PROMPT}')")
+                missing.append(f"pièce ('{coin_prompt}')")
             raise ValueError(
                 "SAM 3.1 n'a rien segmenté pour : "
                 + ", ".join(missing)
-                + ". Ajuste SAM_OBJECT_PROMPT / SAM_COIN_PROMPT."
+                + ". Reformule la description de l'objet, "
+                "ou vérifie que l'objet et la pièce sont bien visibles."
             )
 
         return SegmentationResult(object_mask=object_mask, coin_mask=coin_mask)
