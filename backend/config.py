@@ -30,9 +30,15 @@ class Settings:
     BASETEN_MODEL: str = os.getenv("BASETEN_MODEL", "meta-models/muse-spark-open-1026")
     BASETEN_API_BASE: str = os.getenv("BASETEN_API_BASE", "https://inference.baseten.co/v1")
 
-    # SAM
-    SAM_API_KEY: str = os.getenv("SAM_API_KEY", "")
-    SAM_API_BASE: str = os.getenv("SAM_API_BASE", "")
+    # SAM — par défaut sur la même Model API que Muse (même clé/endpoint).
+    SAM_API_KEY: str = os.getenv("SAM_API_KEY", "") or os.getenv("MUSE_API_KEY", "")
+    SAM_API_BASE: str = os.getenv("SAM_API_BASE", "") or os.getenv(
+        "MUSE_API_BASE", "https://api.meta.ai/v1"
+    )
+    SAM_MODEL: str = os.getenv("SAM_MODEL", "sam-3.1")
+    # Phrases nominales envoyées à SAM pour détecter l'objet et la pièce.
+    SAM_OBJECT_PROMPT: str = os.getenv("SAM_OBJECT_PROMPT", "the main object")
+    SAM_COIN_PROMPT: str = os.getenv("SAM_COIN_PROMPT", "coin")
 
     # Pipeline
     USE_MOCK_VISION: bool = _as_bool(os.getenv("USE_MOCK_VISION"), default=True)

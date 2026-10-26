@@ -82,7 +82,10 @@ L'agent assemble ces modules, il ne manipule jamais de polygones bruts :
 
 ## Notes
 
-- `sam_client._segment_remote` est un stub : brancher l'API SAM 3.1 réelle quand
-  les credentials sont disponibles (garder `USE_MOCK_VISION=true` sinon).
-- Muse Spark / Baseten sont appelés via le schéma OpenAI `/chat/completions` ;
-  ajuster si l'API réelle diffère.
+- Vision : `USE_MOCK_VISION=true` (défaut) utilise un mock OpenCV local. Mettre
+  `USE_MOCK_VISION=false` active le vrai **SAM 3.1** (Meta Model API), qui
+  réutilise `MUSE_API_KEY`. Ajuster `SAM_OBJECT_PROMPT` / `SAM_COIN_PROMPT`
+  (phrases nominales, ex. `computer mouse`, `coin`) selon la photo.
+- SAM 3.1 est appelé via la Responses API (SDK `openai`) et sa sortie est
+  décodée avec `meta-sam-parser` (masques RLE → masque binaire pleine image).
+- Muse Spark / Baseten sont appelés via le schéma OpenAI `/chat/completions`.
