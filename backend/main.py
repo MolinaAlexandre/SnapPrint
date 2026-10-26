@@ -1,0 +1,156 @@
+"""SnapPrint / VoiceCAD — API FastAPI.
+
+Pipeline :
+  photo (+ voix) -> SAM (masques) -> calibration mm -> Muse Spark (SCAD)
+  -> compilation OpenSCAD auto-corrigée -> STL -> visualisation Three.js.
+"""
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+
+import cv2
+import numpy as np
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+
+from backend.agent.orchestrator import Orchestrator
+from backend.agent.voice import VoiceTranscriber
+from backend.cad.compiler import compile_scad_with_self_healing
+from backend.config import settings
+from backend.vision.calibrator import extract_metric_polygon
+from backend.vision.sam_client import SamClient
+
+app = FastAPI(title="SnapPrint / VoiceCAD", version="0.1.0")
+
+# CORS pour le frontend Next.js en dev.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+sam_client = SamClient()
+transcriber = VoiceTranscriber()
+orchestrator = Orchestrator()
+
+
+def _decode_image(raw: bytes) -> np.ndarray:
+    arr = np.frombuffer(raw, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="Image illisible / format non supporté.")
+    return img
+
+
+@app.get("/health")
+def health() -> dict:
+    return {
+        "status": "ok",
+        "mock_vision": settings.USE_MOCK_VISION,
+        "muse_configured": bool(settings.MUSE_API_KEY),
+        "baseten_configured": bool(settings.BASETEN_API_KEY),
+    }
+
+
+@app.post("/api/transcribe")
+async def transcribe(audio: UploadFile = File(...)) -> dict:
+    """Transcription seule (debug / usage frontend indépendant)."""
+    data = await audio.read()
+    text = transcriber.transcribe(data, filename=audio.filename or "audio.webm")
+    return {"transcript": text}
+
+
+@app.post("/api/generate")
+async def generate(
+    photo: UploadFile = File(...),
+    audio: UploadFile | None = File(None),
+    instruction: str | None = Form(None),
+) -> JSONResponse:
+    """Pipeline complet : photo (+ voix ou texte) -> STL.
+
+    Fournir soit `audio` (transcrit via Muse Voice), soit `instruction` (texte).
+    """
+    # 1. Image.
+    image_bgr = _decode_image(await photo.read())
+
+    # 2. Instruction : audio prioritaire, sinon texte.
+    if audio is not None:
+        transcript = transcriber.transcribe(
+            await audio.read(), filename=audio.filename or "audio.webm"
+        )
+    elif instruction:
+        transcript = instruction
+    else:
+        raise HTTPException(
+            status_code=400, detail="Fournir un audio ou une instruction texte."
+        )
+
+    # 3. Segmentation SAM -> masques.
+    seg = sam_client.segment(image_bgr)
+
+    # 4. Calibration mm + polygone.
+    try:
+        metric = extract_metric_polygon(seg.object_mask, seg.coin_mask)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Calibration échouée : {exc}")
+
+    # 5. Génération du code SCAD.
+    scad_code = orchestrator.generate_scad(
+        transcript=transcript,
+        scad_polygon=metric.scad_polygon,
+        width_mm=metric.width_mm,
+        depth_mm=metric.depth_mm,
+    )
+
+    # 6. Compilation OpenSCAD avec auto-correction. Chemin ABSOLU (cwd change
+    #    pendant la compilation pour résoudre l'include de la bibliothèque).
+    job_id = uuid.uuid4().hex[:12]
+    stl_path = (settings.OUTPUT_DIR / f"{job_id}.stl").resolve()
+
+    result = compile_scad_with_self_healing(
+        scad_code=scad_code,
+        output_path=stl_path,
+        agent_reflector_fn=orchestrator.reflector,
+        max_retries=2,
+    )
+
+    response = {
+        "job_id": job_id,
+        "transcript": transcript,
+        "metric": {
+            "width_mm": metric.width_mm,
+            "depth_mm": metric.depth_mm,
+            "px_to_mm": round(metric.px_to_mm, 5),
+        },
+        "success": result.success,
+        "attempts": result.attempts,
+        "scad_code": result.final_code,
+        "errors": result.errors,
+        "stl_url": f"/api/stl/{job_id}" if result.success else None,
+    }
+    status = 200 if result.success else 500
+    return JSONResponse(content=response, status_code=status)
+
+
+@app.get("/api/stl/{job_id}")
+def get_stl(job_id: str) -> FileResponse:
+    """Sert le fichier STL généré."""
+    # Garde-fou contre le path traversal.
+    if not job_id.isalnum():
+        raise HTTPException(status_code=400, detail="job_id invalide.")
+    stl_path = (settings.OUTPUT_DIR / f"{job_id}.stl").resolve()
+    if not stl_path.exists() or settings.OUTPUT_DIR.resolve() not in stl_path.parents:
+        raise HTTPException(status_code=404, detail="STL introuvable.")
+    return FileResponse(
+        stl_path, media_type="model/stl", filename=f"snapprint_{job_id}.stl"
+    )
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
