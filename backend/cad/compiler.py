@@ -5,6 +5,7 @@ OpenSCAD pour corriger le code, jusqu'à `max_retries` fois.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -56,19 +57,22 @@ def compile_scad_with_self_healing(
         temp_scad_file = output_path.with_suffix(".scad")
         temp_scad_file.write_text(current_code, encoding="utf-8")
 
-        # -o sortie STL, et include-dir pour résoudre lib_primitives.scad.
+        # -o sortie STL. On résout `include <lib_primitives.scad>` via la
+        # variable OPENSCADPATH (bibliothèque dans cad/), indépendamment du cwd
+        # et du répertoire du fichier .scad temporaire.
         cmd = [
             openscad_bin,
             "-o",
             str(output_path),
             temp_scad_file.as_posix(),
         ]
+        env = {**os.environ, "OPENSCADPATH": str(settings.CAD_LIB_DIR)}
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=str(settings.CAD_LIB_DIR),  # résout include <lib_primitives.scad>
-        )
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
 
         if result.returncode == 0 and output_path.exists():
             return CompileResult(
