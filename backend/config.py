@@ -21,9 +21,9 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
 class Settings:
     # Muse (Meta)
     MUSE_API_KEY: str = os.getenv("MUSE_API_KEY", "")
-    MUSE_API_BASE: str = os.getenv("MUSE_API_BASE", "https://api.muse.meta.com/v1")
-    MUSE_SPARK_MODEL: str = os.getenv("MUSE_SPARK_MODEL", "muse-spark")
-    MUSE_VOICE_MODEL: str = os.getenv("MUSE_VOICE_MODEL", "muse-voice-transcribe")
+    MUSE_API_BASE: str = os.getenv("MUSE_API_BASE", "https://api.meta.ai/v1")
+    MUSE_SPARK_MODEL: str = os.getenv("MUSE_SPARK_MODEL", "muse-spark-1.3")
+    MUSE_VOICE_MODEL: str = os.getenv("MUSE_VOICE_MODEL", "muse-voice-transcribe-1.0")
 
     # Baseten (fallback)
     BASETEN_API_KEY: str = os.getenv("BASETEN_API_KEY", "")
