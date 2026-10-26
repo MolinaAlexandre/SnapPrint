@@ -47,8 +47,21 @@ export default function Home() {
       if (objectPrompt.trim()) form.append("object_prompt", objectPrompt.trim());
 
       const res = await fetch("/api/generate", { method: "POST", body: form });
-      const data: GenerateResponse = await res.json();
-      setResult(data);
+      const data = await res.json();
+
+      // Erreur FastAPI (400/422/…) : { detail: "..." }, sans metric. On ne doit
+      // PAS la confondre avec un échec de compilation (500 mais avec metric +
+      // scad_code + errors, qu'on veut afficher).
+      if (!data || !data.metric) {
+        const detail =
+          (data && (data.detail || data.message)) ||
+          `Échec (HTTP ${res.status}).`;
+        setResult(null);
+        setError(typeof detail === "string" ? detail : JSON.stringify(detail));
+        return;
+      }
+
+      setResult(data as GenerateResponse);
       if (!data.success) {
         setError("Compilation échouée après auto-correction. Voir les détails.");
       }
@@ -159,7 +172,7 @@ export default function Home() {
         {error && <p style={{ color: "#ff6b6b", margin: 0 }}>{error}</p>}
       </section>
 
-      {result && (
+      {result && result.metric && (
         <section style={{ marginTop: "1.5rem" }}>
           <h2 style={{ fontSize: "1.2rem" }}>Résultat</h2>
           <p style={{ color: "#9aa0aa" }}>
