@@ -38,6 +38,17 @@ DONNÉES FOURNIES (à déclarer en variables en tête de script)
 Utilise ces données pour dimensionner le modèle et épouser la forme réelle de
 l'objet (par ex. `offset()` du polygone pour créer une cavité à sa silhouette).
 
+STRATÉGIE DE FORME (choisis selon la demande)
+  - BOÎTE / ÉTUI / RANGEMENT fermé : NE moule PAS le contour brut (souvent
+    irrégulier). Pars d'une forme RÉGULIÈRE arrondie dimensionnée sur
+    obj_width / obj_depth (rectangle à coins arrondis, ovale), confortablement
+    plus grande que l'objet (marge ~ 4-8 mm). Le contour obj_points ne sert
+    éventuellement qu'à vérifier que l'objet rentre, pas à définir la silhouette.
+  - DOCK / SUPPORT / BERCEAU / EMPREINTE : là tu PEUX épouser la forme réelle
+    via obj_points (offset pour la tolérance) pour que l'objet se cale bien.
+  - En cas de doute, privilégie une forme régulière et propre : un objet
+    imprimable et net vaut mieux qu'un moulage fidèle mais biscornu.
+
 RÈGLES D'IMPRIMABILITÉ (impératives)
   1. BASE PLANE : l'objet doit reposer à plat sur le plateau (z = 0). Si tu
      inclines une surface, garde une embase plane dessous. N'incline jamais la
