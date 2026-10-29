@@ -177,6 +177,56 @@ async def generate(
     return JSONResponse(content=response, status_code=status)
 
 
+class GenerateTextBody(BaseModel):
+    description: str
+    width_mm: float | None = None
+    depth_mm: float | None = None
+    height_mm: float | None = None
+    quality: bool = True
+
+
+@app.post("/api/generate_text")
+def generate_text(body: GenerateTextBody) -> JSONResponse:
+    """Génération SANS photo : description détaillée (+ dimensions) -> STL.
+
+    Pas de vision ni de calibration ; l'agent conçoit la forme depuis le texte.
+    """
+    if not body.description.strip():
+        raise HTTPException(status_code=400, detail="Description vide.")
+
+    try:
+        scad_code = orchestrator.generate_scad_from_text(
+            description=body.description,
+            width_mm=body.width_mm,
+            depth_mm=body.depth_mm,
+            height_mm=body.height_mm,
+        )
+    except AgentError:
+        raise HTTPException(
+            status_code=503,
+            detail="Génération indisponible (aucun LLM configuré).",
+        )
+    if not scad_code.strip():
+        raise HTTPException(status_code=502, detail="L'IA n'a renvoyé aucun code.")
+
+    if body.quality:
+        scad_code = orchestrator.refine_quality(scad_code)
+
+    job_id, result = _compile_to_job(scad_code)
+    return JSONResponse(
+        content={
+            "job_id": job_id,
+            "success": result.success,
+            "attempts": result.attempts,
+            "scad_code": result.final_code,
+            "errors": result.errors,
+            "stl_url": f"/api/stl/{job_id}" if result.success else None,
+            "parts_url": f"/api/parts/{job_id}" if result.success else None,
+        },
+        status_code=200 if result.success else 500,
+    )
+
+
 @app.get("/api/stl/{job_id}")
 def get_stl(job_id: str) -> FileResponse:
     """Sert le fichier STL généré."""

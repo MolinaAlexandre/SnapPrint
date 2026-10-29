@@ -18,6 +18,7 @@ from backend.agent.prompts import (
     build_generation_prompt,
     build_quality_refine_prompt,
     build_reflection_prompt,
+    build_text_generation_prompt,
     build_user_refine_prompt,
 )
 from backend.config import settings
@@ -131,6 +132,24 @@ class Orchestrator:
                 depth=max(depth_mm + 20, 60),
                 depth_half=round((depth_mm + 20) / 2, 2),
             )
+
+    def generate_scad_from_text(
+        self,
+        *,
+        description: str,
+        width_mm: float | None = None,
+        depth_mm: float | None = None,
+        height_mm: float | None = None,
+    ) -> str:
+        """Génère du OpenSCAD SANS photo, depuis une description + dimensions."""
+        user_msg = build_text_generation_prompt(
+            description=description,
+            width_mm=width_mm,
+            depth_mm=depth_mm,
+            height_mm=height_mm,
+        )
+        raw = self._complete(user_msg)  # peut lever AgentError si aucun LLM
+        return _extract_scad(raw)
 
     def refine_quality(self, current_code: str) -> str:
         """Passe de qualité : améliore le code (base plane, manifold, parois…).

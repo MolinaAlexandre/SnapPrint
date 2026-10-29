@@ -148,3 +148,41 @@ d'imprimabilité (base plane, manifold, parois >= 2 mm, tolérances). Si la
 demande est ambiguë, fais le choix le plus raisonnable pour un objet imprimable.
 Renvoie UNIQUEMENT le code OpenSCAD modifié, sans explication ni Markdown.
 """.strip()
+
+
+def build_text_generation_prompt(
+    *,
+    description: str,
+    width_mm: float | None = None,
+    depth_mm: float | None = None,
+    height_mm: float | None = None,
+) -> str:
+    """Génération SANS photo : depuis une description détaillée + dimensions.
+
+    Il n'y a pas de contour d'objet ; l'agent conçoit la forme librement.
+    """
+    dims = []
+    if width_mm and width_mm > 0:
+        dims.append(f"largeur ≈ {width_mm} mm")
+    if depth_mm and depth_mm > 0:
+        dims.append(f"profondeur ≈ {depth_mm} mm")
+    if height_mm and height_mm > 0:
+        dims.append(f"hauteur ≈ {height_mm} mm")
+    dims_line = (
+        "DIMENSIONS CIBLES : " + ", ".join(dims)
+        if dims
+        else "DIMENSIONS : non imposées (choisis des dimensions raisonnables, "
+        "ou lis-les dans la description)."
+    )
+
+    return f"""
+DEMANDE DE L'UTILISATEUR (conception sans photo) :
+"{description}"
+
+{dims_line}
+
+Conçois et génère le script OpenSCAD complet correspondant. Respecte toute
+dimension explicite donnée dans la description ou ci-dessus. Applique les règles
+d'imprimabilité (base plane, manifold, parois >= 2 mm, tolérances). Si plusieurs
+pièces, dispose-les côte à côte à plat. Renvoie UNIQUEMENT le code OpenSCAD.
+""".strip()
