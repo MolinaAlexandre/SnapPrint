@@ -16,7 +16,9 @@ import httpx
 from backend.agent.prompts import (
     SYSTEM_PROMPT,
     build_generation_prompt,
+    build_quality_refine_prompt,
     build_reflection_prompt,
+    build_user_refine_prompt,
 )
 from backend.config import settings
 
@@ -129,6 +131,23 @@ class Orchestrator:
                 depth=max(depth_mm + 20, 60),
                 depth_half=round((depth_mm + 20) / 2, 2),
             )
+
+    def refine_quality(self, current_code: str) -> str:
+        """Passe de qualité : améliore le code (base plane, manifold, parois…).
+
+        Renvoie le code inchangé si aucun LLM n'est disponible.
+        """
+        try:
+            raw = self._complete(build_quality_refine_prompt(current_code))
+            improved = _extract_scad(raw)
+            return improved or current_code
+        except AgentError:
+            return current_code
+
+    def refine_request(self, current_code: str, request: str) -> str:
+        """Applique une modification décrite par l'utilisateur en langage naturel."""
+        raw = self._complete(build_user_refine_prompt(current_code, request))
+        return _extract_scad(raw)
 
     def reflector(self, current_code: str, error_msg: str) -> str:
         """Callback d'auto-correction pour le compilateur."""

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import ThreeViewer from "@/components/ThreeViewer";
+import CodeEditor from "@/components/CodeEditor";
 import VoiceRecorder from "@/components/VoiceRecorder";
 
 type GenerateResponse = {
@@ -23,8 +23,6 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const stlUrl = result?.stl_url ?? null;
 
   const submit = async () => {
     if (!photo) {
@@ -180,47 +178,10 @@ export default function Home() {
             {result.metric.width_mm} × {result.metric.depth_mm} mm — tentatives :{" "}
             {result.attempts}
           </p>
-          <ThreeViewer stlUrl={stlUrl} />
-          {stlUrl && (
-            <p style={{ marginTop: "0.75rem" }}>
-              <a href={stlUrl} download style={{ color: "#4f9dff" }}>
-                ⬇️ Télécharger le STL
-              </a>
-            </p>
-          )}
-          <details style={{ marginTop: "1rem" }}>
-            <summary style={{ cursor: "pointer" }}>Code OpenSCAD généré</summary>
-            <pre
-              style={{
-                background: "#0f1116",
-                padding: "1rem",
-                borderRadius: "8px",
-                overflowX: "auto",
-                fontSize: "0.8rem",
-              }}
-            >
-              {result.scad_code}
-            </pre>
-          </details>
-          {result.errors.length > 0 && (
-            <details>
-              <summary style={{ cursor: "pointer", color: "#ff9f6b" }}>
-                Erreurs de compilation ({result.errors.length})
-              </summary>
-              <pre
-                style={{
-                  background: "#0f1116",
-                  padding: "1rem",
-                  borderRadius: "8px",
-                  overflowX: "auto",
-                  fontSize: "0.8rem",
-                  color: "#ff9f6b",
-                }}
-              >
-                {result.errors.join("\n\n")}
-              </pre>
-            </details>
-          )}
+          <CodeEditor
+            initialCode={result.scad_code}
+            initialStlUrl={result.stl_url}
+          />
         </section>
       )}
     </main>

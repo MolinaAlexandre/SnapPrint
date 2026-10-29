@@ -14,8 +14,9 @@ import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 
-from backend.agent.orchestrator import Orchestrator
+from backend.agent.orchestrator import AgentError, Orchestrator
 from backend.agent.voice import VoiceTranscriber
 from backend.cad.compiler import compile_scad_with_self_healing
 from backend.config import settings
@@ -44,6 +45,23 @@ def _decode_image(raw: bytes) -> np.ndarray:
     if img is None:
         raise HTTPException(status_code=400, detail="Image illisible / format non supporté.")
     return img
+
+
+def _compile_to_job(scad_code: str):
+    """Compile un code SCAD en STL (avec auto-correction) sous un nouveau job_id.
+
+    Chemin ABSOLU (le cwd change pendant la compilation pour résoudre l'include
+    de la bibliothèque). Retourne (job_id, CompileResult).
+    """
+    job_id = uuid.uuid4().hex[:12]
+    stl_path = (settings.OUTPUT_DIR / f"{job_id}.stl").resolve()
+    result = compile_scad_with_self_healing(
+        scad_code=scad_code,
+        output_path=stl_path,
+        agent_reflector_fn=orchestrator.reflector,
+        max_retries=2,
+    )
+    return job_id, result
 
 
 @app.get("/health")
@@ -112,17 +130,12 @@ async def generate(
         depth_mm=metric.depth_mm,
     )
 
-    # 6. Compilation OpenSCAD avec auto-correction. Chemin ABSOLU (cwd change
-    #    pendant la compilation pour résoudre l'include de la bibliothèque).
-    job_id = uuid.uuid4().hex[:12]
-    stl_path = (settings.OUTPUT_DIR / f"{job_id}.stl").resolve()
+    # 5b. Passe de qualité : l'agent critique et améliore son propre code
+    #     (base plane, manifold, parois, arrondis, pièces côte à côte).
+    scad_code = orchestrator.refine_quality(scad_code)
 
-    result = compile_scad_with_self_healing(
-        scad_code=scad_code,
-        output_path=stl_path,
-        agent_reflector_fn=orchestrator.reflector,
-        max_retries=2,
-    )
+    # 6. Compilation OpenSCAD avec auto-correction.
+    job_id, result = _compile_to_job(scad_code)
 
     response = {
         "job_id": job_id,
@@ -153,6 +166,64 @@ def get_stl(job_id: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="STL introuvable.")
     return FileResponse(
         stl_path, media_type="model/stl", filename=f"snapprint_{job_id}.stl"
+    )
+
+
+class RecompileBody(BaseModel):
+    scad_code: str
+
+
+class RefineBody(BaseModel):
+    scad_code: str
+    request: str
+
+
+@app.post("/api/recompile")
+def recompile(body: RecompileBody) -> JSONResponse:
+    """Recompile un code OpenSCAD fourni (édité à la main) en STL."""
+    if not body.scad_code.strip():
+        raise HTTPException(status_code=400, detail="Code OpenSCAD vide.")
+    job_id, result = _compile_to_job(body.scad_code)
+    return JSONResponse(
+        content={
+            "job_id": job_id,
+            "success": result.success,
+            "attempts": result.attempts,
+            "scad_code": result.final_code,
+            "errors": result.errors,
+            "stl_url": f"/api/stl/{job_id}" if result.success else None,
+        },
+        status_code=200 if result.success else 500,
+    )
+
+
+@app.post("/api/refine")
+def refine(body: RefineBody) -> JSONResponse:
+    """Modifie le code via l'IA (demande en langage naturel), puis recompile."""
+    if not body.scad_code.strip():
+        raise HTTPException(status_code=400, detail="Code OpenSCAD vide.")
+    if not body.request.strip():
+        raise HTTPException(status_code=400, detail="Demande de modification vide.")
+    try:
+        new_code = orchestrator.refine_request(body.scad_code, body.request)
+    except AgentError:
+        raise HTTPException(
+            status_code=503,
+            detail="Modification par IA indisponible (aucun LLM configuré).",
+        )
+    if not new_code.strip():
+        raise HTTPException(status_code=502, detail="L'IA n'a renvoyé aucun code.")
+    job_id, result = _compile_to_job(new_code)
+    return JSONResponse(
+        content={
+            "job_id": job_id,
+            "success": result.success,
+            "attempts": result.attempts,
+            "scad_code": result.final_code,
+            "errors": result.errors,
+            "stl_url": f"/api/stl/{job_id}" if result.success else None,
+        },
+        status_code=200 if result.success else 500,
     )
 
 

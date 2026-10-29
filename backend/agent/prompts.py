@@ -96,3 +96,44 @@ imprimable, avec une base plane. Si l'erreur vient d'un module introuvable,
 soit tu ajoutes `include <lib_primitives.scad>;`, soit tu réécris la forme avec
 des primitives OpenSCAD natives. Renvoie UNIQUEMENT le code OpenSCAD corrigé.
 """.strip()
+
+
+def build_quality_refine_prompt(current_code: str) -> str:
+    """Passe de qualité : l'agent critique puis améliore son propre code."""
+    return f"""
+Voici un script OpenSCAD que tu viens de produire pour un objet imprimable.
+
+--- CODE ACTUEL ---
+{current_code}
+
+Améliore-le en appliquant une revue d'ingénieur, SANS changer l'intention :
+- Vérifie que la base est bien plane (repose à plat sur z = 0).
+- Vérifie que la géométrie est manifold et fermée (pas de paroi nulle, pas de
+  faces qui s'annulent).
+- Parois et planchers >= 2 mm ; renforce si trop fin.
+- Arrondis les arêtes vives exposées (confort / solidité) quand c'est pertinent.
+- Assure des tolérances correctes pour les pièces qui s'emboîtent.
+- Monte $fn à 64 pour des courbes propres si ce n'est pas déjà le cas.
+- Si plusieurs pièces (ex. base + couvercle), dispose-les côte à côte à plat,
+  sans chevauchement, prêtes à imprimer.
+
+Renvoie UNIQUEMENT le code OpenSCAD amélioré, sans explication ni Markdown.
+""".strip()
+
+
+def build_user_refine_prompt(current_code: str, request: str) -> str:
+    """Modification demandée par l'utilisateur en langage naturel."""
+    return f"""
+Voici un script OpenSCAD existant.
+
+--- CODE ACTUEL ---
+{current_code}
+
+DEMANDE DE MODIFICATION DE L'UTILISATEUR :
+"{request}"
+
+Applique cette modification en conservant le reste du design et les règles
+d'imprimabilité (base plane, manifold, parois >= 2 mm, tolérances). Si la
+demande est ambiguë, fais le choix le plus raisonnable pour un objet imprimable.
+Renvoie UNIQUEMENT le code OpenSCAD modifié, sans explication ni Markdown.
+""".strip()
