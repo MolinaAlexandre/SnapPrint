@@ -6,19 +6,22 @@ Pipeline :
 """
 from __future__ import annotations
 
+import io
 import uuid
+import zipfile
 from pathlib import Path
 
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from backend.agent.orchestrator import AgentError, Orchestrator
 from backend.agent.voice import VoiceTranscriber
 from backend.cad.compiler import compile_scad_with_self_healing
+from backend.cad.stl_parts import split_stl_into_parts
 from backend.config import settings
 from backend.vision.calibrator import extract_metric_polygon
 from backend.vision.sam_client import SamClient
@@ -89,15 +92,20 @@ async def generate(
     instruction: str | None = Form(None),
     object_prompt: str | None = Form(None),
     quality: bool = Form(True),
+    real_dim_mm: float | None = Form(None),
+    real_dim_axis: str = Form("length"),
 ) -> JSONResponse:
     """Pipeline complet : photo (+ voix ou texte) -> STL.
 
     - `audio` (transcrit via Muse Voice) ou `instruction` (texte) : la consigne.
-    - `object_prompt` : phrase nominale décrivant l'objet à détourer pour SAM
-      (ex. "computer mouse"). Optionnel ; défaut = config SAM_OBJECT_PROMPT.
+    - `object_prompt` : phrase nominale décrivant l'objet à détourer pour SAM.
+    - `real_dim_mm` + `real_dim_axis` (width/depth/length) : dimension réelle
+      connue de l'objet pour recaler l'échelle (la pièce devient facultative).
     """
     # 1. Image.
     image_bgr = _decode_image(await photo.read())
+
+    use_real_dim = real_dim_mm is not None and real_dim_mm > 0
 
     # 2. Instruction : audio prioritaire, sinon texte.
     if audio is not None:
@@ -111,15 +119,23 @@ async def generate(
             status_code=400, detail="Fournir un audio ou une instruction texte."
         )
 
-    # 3. Segmentation SAM -> masques (l'objet décrit par l'utilisateur).
+    # 3. Segmentation SAM. Si une dimension réelle est donnée, la pièce n'est
+    #    pas nécessaire (on saute sa segmentation).
     try:
-        seg = sam_client.segment(image_bgr, object_prompt=object_prompt)
+        seg = sam_client.segment(
+            image_bgr, object_prompt=object_prompt, need_coin=not use_real_dim
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"Segmentation échouée : {exc}")
 
     # 4. Calibration mm + polygone.
     try:
-        metric = extract_metric_polygon(seg.object_mask, seg.coin_mask)
+        metric = extract_metric_polygon(
+            seg.object_mask,
+            seg.coin_mask if not use_real_dim else None,
+            real_dim_mm=real_dim_mm if use_real_dim else None,
+            real_dim_axis=real_dim_axis,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"Calibration échouée : {exc}")
 
@@ -146,13 +162,16 @@ async def generate(
         "metric": {
             "width_mm": metric.width_mm,
             "depth_mm": metric.depth_mm,
+            "length_mm": metric.length_mm,
             "px_to_mm": round(metric.px_to_mm, 5),
+            "calibration": metric.calibration,
         },
         "success": result.success,
         "attempts": result.attempts,
         "scad_code": result.final_code,
         "errors": result.errors,
         "stl_url": f"/api/stl/{job_id}" if result.success else None,
+        "parts_url": f"/api/parts/{job_id}" if result.success else None,
     }
     status = 200 if result.success else 500
     return JSONResponse(content=response, status_code=status)
@@ -169,6 +188,42 @@ def get_stl(job_id: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="STL introuvable.")
     return FileResponse(
         stl_path, media_type="model/stl", filename=f"snapprint_{job_id}.stl"
+    )
+
+
+@app.get("/api/parts/{job_id}")
+def get_parts(job_id: str):
+    """Découpe le STL en pièces (composantes connexes) et renvoie un ZIP.
+
+    S'il n'y a qu'une pièce, le ZIP contient un seul STL.
+    """
+    if not job_id.isalnum():
+        raise HTTPException(status_code=400, detail="job_id invalide.")
+    stl_path = (settings.OUTPUT_DIR / f"{job_id}.stl").resolve()
+    if not stl_path.exists() or settings.OUTPUT_DIR.resolve() not in stl_path.parents:
+        raise HTTPException(status_code=404, detail="STL introuvable.")
+
+    parts_dir = (settings.OUTPUT_DIR / f"{job_id}_parts").resolve()
+    try:
+        part_paths = split_stl_into_parts(stl_path, parts_dir)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Découpe STL échouée : {exc}")
+
+    if not part_paths:
+        raise HTTPException(status_code=422, detail="Aucune géométrie à découper.")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in part_paths:
+            zf.write(p, arcname=p.name)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="snapprint_{job_id}_parts.zip"'
+        },
     )
 
 
@@ -195,6 +250,7 @@ def recompile(body: RecompileBody) -> JSONResponse:
             "scad_code": result.final_code,
             "errors": result.errors,
             "stl_url": f"/api/stl/{job_id}" if result.success else None,
+        "parts_url": f"/api/parts/{job_id}" if result.success else None,
         },
         status_code=200 if result.success else 500,
     )
@@ -225,6 +281,7 @@ def refine(body: RefineBody) -> JSONResponse:
             "scad_code": result.final_code,
             "errors": result.errors,
             "stl_url": f"/api/stl/{job_id}" if result.success else None,
+        "parts_url": f"/api/parts/{job_id}" if result.success else None,
         },
         status_code=200 if result.success else 500,
     )

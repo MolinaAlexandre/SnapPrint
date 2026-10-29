@@ -8,12 +8,19 @@ import { apiUrl } from "@/lib/api";
 type GenerateResponse = {
   job_id: string;
   transcript: string;
-  metric: { width_mm: number; depth_mm: number; px_to_mm: number };
+  metric: {
+    width_mm: number;
+    depth_mm: number;
+    length_mm: number;
+    px_to_mm: number;
+    calibration: string;
+  };
   success: boolean;
   attempts: number;
   scad_code: string;
   errors: string[];
   stl_url: string | null;
+  parts_url: string | null;
 };
 
 export default function Home() {
@@ -21,6 +28,8 @@ export default function Home() {
   const [audio, setAudio] = useState<Blob | null>(null);
   const [instruction, setInstruction] = useState("");
   const [objectPrompt, setObjectPrompt] = useState("");
+  const [realDim, setRealDim] = useState("");
+  const [realDimAxis, setRealDimAxis] = useState("length");
   const [quality, setQuality] = useState(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerateResponse | null>(null);
@@ -46,6 +55,11 @@ export default function Home() {
       else form.append("instruction", instruction);
       if (objectPrompt.trim()) form.append("object_prompt", objectPrompt.trim());
       form.append("quality", quality ? "true" : "false");
+      const rd = parseFloat(realDim.replace(",", "."));
+      if (!isNaN(rd) && rd > 0) {
+        form.append("real_dim_mm", String(rd));
+        form.append("real_dim_axis", realDimAxis);
+      }
 
       const res = await fetch(apiUrl("/api/generate"), {
         method: "POST",
@@ -133,6 +147,50 @@ export default function Home() {
 
         <div>
           <label style={{ display: "block", marginBottom: "0.5rem" }}>
+            Dimension réelle connue (optionnel, mm)
+          </label>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              value={realDim}
+              onChange={(e) => setRealDim(e.target.value)}
+              placeholder="ex : 135"
+              style={{
+                flex: 1,
+                background: "#0f1116",
+                color: "#e8e8e8",
+                border: "1px solid #2a2d35",
+                borderRadius: "8px",
+                padding: "0.6rem",
+              }}
+            />
+            <select
+              value={realDimAxis}
+              onChange={(e) => setRealDimAxis(e.target.value)}
+              style={{
+                background: "#0f1116",
+                color: "#e8e8e8",
+                border: "1px solid #2a2d35",
+                borderRadius: "8px",
+                padding: "0.6rem",
+              }}
+            >
+              <option value="length">longueur (plus grande)</option>
+              <option value="width">largeur (X)</option>
+              <option value="depth">profondeur (Y)</option>
+            </select>
+          </div>
+          <p style={{ color: "#6b7280", fontSize: "0.85rem", marginTop: "0.5rem" }}>
+            Mesure une dimension de l'objet au réglet et saisis-la : l'échelle
+            est recalée dessus (taille exacte garantie). Si vide, l'échelle vient
+            de la pièce de 1 €.
+          </p>
+        </div>
+
+        <div>
+          <label style={{ display: "block", marginBottom: "0.5rem" }}>
             3. Consigne vocale
           </label>
           <VoiceRecorder onRecorded={setAudio} />
@@ -191,13 +249,14 @@ export default function Home() {
         <section style={{ marginTop: "1.5rem" }}>
           <h2 style={{ fontSize: "1.2rem" }}>Résultat</h2>
           <p style={{ color: "#9aa0aa" }}>
-            Transcription : « {result.transcript} » — bbox{" "}
-            {result.metric.width_mm} × {result.metric.depth_mm} mm — tentatives :{" "}
-            {result.attempts}
+            Transcription : « {result.transcript} » — {result.metric.width_mm} ×{" "}
+            {result.metric.depth_mm} mm (long. {result.metric.length_mm} mm,
+            calibr. {result.metric.calibration}) — tentatives : {result.attempts}
           </p>
           <CodeEditor
             initialCode={result.scad_code}
             initialStlUrl={result.stl_url ? apiUrl(result.stl_url) : null}
+            initialPartsUrl={result.parts_url ? apiUrl(result.parts_url) : null}
           />
         </section>
       )}

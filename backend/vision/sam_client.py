@@ -47,23 +47,29 @@ class SamClient:
     # API publique
     # ------------------------------------------------------------------
     def segment(
-        self, image_bgr: np.ndarray, object_prompt: Optional[str] = None
+        self,
+        image_bgr: np.ndarray,
+        object_prompt: Optional[str] = None,
+        need_coin: bool = True,
     ) -> SegmentationResult:
-        """Retourne les masques de l'objet et de la pièce de référence.
+        """Retourne les masques de l'objet et (optionnellement) de la pièce.
 
         `object_prompt` (phrase nominale, ex. "computer mouse") décrit l'objet à
-        détourer. Fourni par l'utilisateur à chaque requête ; à défaut, la valeur
-        de config SAM_OBJECT_PROMPT sert de secours.
+        détourer. `need_coin=False` saute la segmentation de la pièce (utile
+        quand l'échelle est donnée par une dimension réelle connue).
         """
         if self.use_mock:
             return self._segment_mock(image_bgr)
-        return self._segment_remote(image_bgr, object_prompt)
+        return self._segment_remote(image_bgr, object_prompt, need_coin)
 
     # ------------------------------------------------------------------
     # Appel réel SAM 3.1 (Meta Model API)
     # ------------------------------------------------------------------
     def _segment_remote(
-        self, image_bgr: np.ndarray, object_prompt: Optional[str] = None
+        self,
+        image_bgr: np.ndarray,
+        object_prompt: Optional[str] = None,
+        need_coin: bool = True,
     ) -> SegmentationResult:
         h, w = image_bgr.shape[:2]
         data_url = self._to_data_url(image_bgr)
@@ -71,24 +77,30 @@ class SamClient:
         obj_prompt = (object_prompt or "").strip() or settings.SAM_OBJECT_PROMPT
         coin_prompt = settings.SAM_COIN_PROMPT
 
-        # Les deux appels SAM (objet + pièce) sont lancés EN PARALLÈLE.
-        obj_result, coin_result = self._run_async(
-            self._gather_sam(data_url, [obj_prompt, coin_prompt])
-        )
-        object_mask = self._build_mask(obj_result, (h, w))
-        coin_mask = self._build_mask(coin_result, (h, w))
+        if need_coin:
+            # Les deux appels SAM (objet + pièce) en PARALLÈLE.
+            obj_result, coin_result = self._run_async(
+                self._gather_sam(data_url, [obj_prompt, coin_prompt])
+            )
+            object_mask = self._build_mask(obj_result, (h, w))
+            coin_mask = self._build_mask(coin_result, (h, w))
+        else:
+            (obj_result,) = self._run_async(
+                self._gather_sam(data_url, [obj_prompt])
+            )
+            object_mask = self._build_mask(obj_result, (h, w))
+            coin_mask = np.zeros((h, w), dtype=np.uint8)
 
-        # Fiabilité : si la pièce chevauche l'objet (même masque capté),
-        # on retire la pièce de l'objet pour un contour propre.
+        # Fiabilité : si la pièce chevauche l'objet, on la retire de l'objet.
         if object_mask.any() and coin_mask.any():
             object_mask = cv2.bitwise_and(object_mask, cv2.bitwise_not(coin_mask))
 
-        if not object_mask.any() or not coin_mask.any():
-            missing = []
-            if not object_mask.any():
-                missing.append(f"objet ('{obj_prompt}')")
-            if not coin_mask.any():
-                missing.append(f"pièce ('{coin_prompt}')")
+        missing = []
+        if not object_mask.any():
+            missing.append(f"objet ('{obj_prompt}')")
+        if need_coin and not coin_mask.any():
+            missing.append(f"pièce ('{coin_prompt}')")
+        if missing:
             raise ValueError(
                 "SAM 3.1 n'a rien segmenté pour : "
                 + ", ".join(missing)

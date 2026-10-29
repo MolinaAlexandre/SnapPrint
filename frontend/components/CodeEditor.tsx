@@ -11,11 +11,13 @@ type CompileResponse = {
   scad_code: string;
   errors: string[];
   stl_url: string | null;
+  parts_url: string | null;
 };
 
 type Props = {
   initialCode: string;
   initialStlUrl: string | null;
+  initialPartsUrl: string | null;
 };
 
 const box: React.CSSProperties = {
@@ -38,9 +40,14 @@ const btn = (disabled: boolean, bg = "#4f9dff"): React.CSSProperties => ({
   fontWeight: 600,
 });
 
-export default function CodeEditor({ initialCode, initialStlUrl }: Props) {
+export default function CodeEditor({
+  initialCode,
+  initialStlUrl,
+  initialPartsUrl,
+}: Props) {
   const [code, setCode] = useState(initialCode);
   const [stlUrl, setStlUrl] = useState<string | null>(initialStlUrl);
+  const [partsUrl, setPartsUrl] = useState<string | null>(initialPartsUrl);
   const [aiRequest, setAiRequest] = useState("");
   const [busy, setBusy] = useState<null | "recompile" | "refine">(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -50,15 +57,17 @@ export default function CodeEditor({ initialCode, initialStlUrl }: Props) {
   useEffect(() => {
     setCode(initialCode);
     setStlUrl(initialStlUrl);
+    setPartsUrl(initialPartsUrl);
     setErrors([]);
     setNote(null);
-  }, [initialCode, initialStlUrl]);
+  }, [initialCode, initialStlUrl, initialPartsUrl]);
 
   const apply = (data: CompileResponse, okMsg: string) => {
     setCode(data.scad_code);
     setErrors(data.errors || []);
     if (data.success && data.stl_url) {
       setStlUrl(apiUrl(data.stl_url));
+      setPartsUrl(data.parts_url ? apiUrl(data.parts_url) : null);
       setNote(`${okMsg} (${data.attempts} passe${data.attempts > 1 ? "s" : ""}).`);
     } else {
       setNote("La compilation a échoué. Voir les erreurs ci-dessous.");
@@ -118,9 +127,16 @@ export default function CodeEditor({ initialCode, initialStlUrl }: Props) {
     <div style={{ display: "grid", gap: "1rem" }}>
       <ThreeViewer stlUrl={stlUrl} />
       {stlUrl && (
-        <a href={stlUrl} download style={{ color: "#4f9dff" }}>
-          ⬇️ Télécharger le STL
-        </a>
+        <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}>
+          <a href={stlUrl} download style={{ color: "#4f9dff" }}>
+            ⬇️ Télécharger le STL (entier)
+          </a>
+          {partsUrl && (
+            <a href={partsUrl} style={{ color: "#4f9dff" }}>
+              📦 Télécharger les pièces séparées (ZIP)
+            </a>
+          )}
+        </div>
       )}
 
       {/* Modifier par IA */}
