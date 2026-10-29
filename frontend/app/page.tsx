@@ -3,6 +3,7 @@
 import { useState } from "react";
 import CodeEditor from "@/components/CodeEditor";
 import VoiceRecorder from "@/components/VoiceRecorder";
+import { apiUrl } from "@/lib/api";
 
 type GenerateResponse = {
   job_id: string;
@@ -44,7 +45,10 @@ export default function Home() {
       else form.append("instruction", instruction);
       if (objectPrompt.trim()) form.append("object_prompt", objectPrompt.trim());
 
-      const res = await fetch("/api/generate", { method: "POST", body: form });
+      const res = await fetch(apiUrl("/api/generate"), {
+        method: "POST",
+        body: form,
+      });
       const data = await res.json();
 
       // Erreur FastAPI (400/422/…) : { detail: "..." }, sans metric. On ne doit
@@ -180,7 +184,7 @@ export default function Home() {
           </p>
           <CodeEditor
             initialCode={result.scad_code}
-            initialStlUrl={result.stl_url}
+            initialStlUrl={result.stl_url ? apiUrl(result.stl_url) : null}
           />
         </section>
       )}

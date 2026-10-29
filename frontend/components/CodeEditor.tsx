@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ThreeViewer from "@/components/ThreeViewer";
+import { apiUrl } from "@/lib/api";
 
 type CompileResponse = {
   job_id: string;
@@ -57,7 +58,7 @@ export default function CodeEditor({ initialCode, initialStlUrl }: Props) {
     setCode(data.scad_code);
     setErrors(data.errors || []);
     if (data.success && data.stl_url) {
-      setStlUrl(data.stl_url);
+      setStlUrl(apiUrl(data.stl_url));
       setNote(`${okMsg} (${data.attempts} passe${data.attempts > 1 ? "s" : ""}).`);
     } else {
       setNote("La compilation a échoué. Voir les erreurs ci-dessous.");
@@ -68,7 +69,7 @@ export default function CodeEditor({ initialCode, initialStlUrl }: Props) {
     setBusy("recompile");
     setNote(null);
     try {
-      const res = await fetch("/api/recompile", {
+      const res = await fetch(apiUrl("/api/recompile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scad_code: code }),
@@ -94,7 +95,7 @@ export default function CodeEditor({ initialCode, initialStlUrl }: Props) {
     setBusy("refine");
     setNote(null);
     try {
-      const res = await fetch("/api/refine", {
+      const res = await fetch(apiUrl("/api/refine"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scad_code: code, request: aiRequest.trim() }),

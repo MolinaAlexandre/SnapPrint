@@ -71,8 +71,12 @@ class SamClient:
         obj_prompt = (object_prompt or "").strip() or settings.SAM_OBJECT_PROMPT
         coin_prompt = settings.SAM_COIN_PROMPT
 
-        object_mask = self._segment_prompt(data_url, obj_prompt, (h, w))
-        coin_mask = self._segment_prompt(data_url, coin_prompt, (h, w))
+        # Les deux appels SAM (objet + pièce) sont lancés EN PARALLÈLE.
+        obj_result, coin_result = self._run_async(
+            self._gather_sam(data_url, [obj_prompt, coin_prompt])
+        )
+        object_mask = self._build_mask(obj_result, (h, w))
+        coin_mask = self._build_mask(coin_result, (h, w))
 
         # Fiabilité : si la pièce chevauche l'objet (même masque capté),
         # on retire la pièce de l'objet pour un contour propre.
@@ -94,20 +98,13 @@ class SamClient:
 
         return SegmentationResult(object_mask=object_mask, coin_mask=coin_mask)
 
-    def _segment_prompt(
-        self, data_url: str, prompt: str, shape_hw: tuple[int, int]
-    ) -> np.ndarray:
-        """Segmente une phrase nominale, renvoie un masque binaire pleine image.
+    def _build_mask(self, result, shape_hw: tuple[int, int]) -> np.ndarray:
+        """Reconstruit un masque binaire pleine image à partir d'un résultat SAM.
 
-        Si plusieurs objets correspondent, on fusionne tous les masques
-        (union) — utile pour un objet unique, et robuste sinon on garde la
-        plus grande composante via le calibrateur.
+        Garde le plus grand masque (objet principal) parmi les correspondances.
         """
-        result = self._run_async(self._call_sam(data_url, prompt))
         h, w = shape_hw
         full = np.zeros((h, w), dtype=np.uint8)
-
-        # On garde le masque le plus grand (objet principal) parmi les matches.
         best_area = 0
         best = None
         for rec in result.records:
@@ -124,6 +121,14 @@ class SamClient:
         if best is not None:
             full = best
         return full
+
+    async def _gather_sam(self, data_url: str, prompts: list[str]):
+        """Lance plusieurs segmentations SAM en parallèle sur le même loop."""
+        import asyncio as _aio
+
+        return await _aio.gather(
+            *(self._call_sam(data_url, p) for p in prompts)
+        )
 
     @staticmethod
     def _run_async(coro):
