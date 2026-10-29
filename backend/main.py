@@ -88,6 +88,7 @@ async def generate(
     audio: UploadFile | None = File(None),
     instruction: str | None = Form(None),
     object_prompt: str | None = Form(None),
+    quality: bool = Form(True),
 ) -> JSONResponse:
     """Pipeline complet : photo (+ voix ou texte) -> STL.
 
@@ -130,9 +131,11 @@ async def generate(
         depth_mm=metric.depth_mm,
     )
 
-    # 5b. Passe de qualité : l'agent critique et améliore son propre code
-    #     (base plane, manifold, parois, arrondis, pièces côte à côte).
-    scad_code = orchestrator.refine_quality(scad_code)
+    # 5b. Passe de qualité (optionnelle) : l'agent critique et améliore son
+    #     propre code (base plane, manifold, parois, arrondis, pièces côte à
+    #     côte). Désactivable pour une génération plus rapide.
+    if quality:
+        scad_code = orchestrator.refine_quality(scad_code)
 
     # 6. Compilation OpenSCAD avec auto-correction.
     job_id, result = _compile_to_job(scad_code)

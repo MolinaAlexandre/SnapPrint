@@ -21,6 +21,7 @@ export default function Home() {
   const [audio, setAudio] = useState<Blob | null>(null);
   const [instruction, setInstruction] = useState("");
   const [objectPrompt, setObjectPrompt] = useState("");
+  const [quality, setQuality] = useState(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +45,7 @@ export default function Home() {
       if (audio) form.append("audio", audio, "consigne.webm");
       else form.append("instruction", instruction);
       if (objectPrompt.trim()) form.append("object_prompt", objectPrompt.trim());
+      form.append("quality", quality ? "true" : "false");
 
       const res = await fetch(apiUrl("/api/generate"), {
         method: "POST",
@@ -152,6 +154,17 @@ export default function Home() {
             }}
           />
         </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <input
+            type="checkbox"
+            checked={quality}
+            onChange={(e) => setQuality(e.target.checked)}
+          />
+          <span>
+            Passe de qualité (meilleur rendu, ~2× plus lent)
+          </span>
+        </label>
 
         <button
           type="button"
